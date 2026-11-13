@@ -1,0 +1,225 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Your pet fly</title>
+<link href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:opsz,wght@12..96,400;600;800&display=swap" rel="stylesheet">
+<style>
+:root{--bg:#e8eee9;--ink:#1d2a2a;--muted:#546463;--panel:#f7faf6;--line:#c5d1c8;--bar:#c2410c;
+box-sizing:border-box;padding-top:env(safe-area-inset-top,0px);padding-bottom:env(safe-area-inset-bottom,0px)}
+@media (prefers-color-scheme:dark){:root:not([data-theme="light"]){--bg:#121917;--ink:#e3ece6;--muted:#92a39c;--panel:#1b2623;--line:#2f3d39;--bar:#f08a4b;color-scheme:dark}}
+:root[data-theme="dark"]{--bg:#121917;--ink:#e3ece6;--muted:#92a39c;--panel:#1b2623;--line:#2f3d39;--bar:#f08a4b;color-scheme:dark}
+html{height:100%;scroll-padding-top:env(safe-area-inset-top,0px)}
+*{box-sizing:border-box}
+body{margin:0;background:var(--bg);color:var(--ink);font-family:"Bricolage Grotesque",system-ui,-apple-system,"Segoe UI",sans-serif;line-height:1.5}
+main{max-width:1040px;margin:0 auto;padding:28px 18px 40px}
+h1{font-size:clamp(2.2rem,6vw,3.6rem);line-height:1;margin:0 0 10px;font-weight:800;letter-spacing:-.02em}
+.lede{max-width:58ch;margin:0 0 22px;color:var(--muted)}
+.grid{display:grid;grid-template-columns:1.15fr 1fr;gap:12px;align-items:start}
+@media(min-width:800px){.grid{grid-template-columns:1.15fr 1fr}}
+figure{margin:0}
+canvas{display:block;width:100%;aspect-ratio:1;border-radius:50%}
+#brain{border-radius:14px;background:#17211f}
+.panel{background:var(--panel);border:1px solid var(--line);border-radius:14px;padding:14px}
+.arenaWrap canvas{cursor:crosshair;touch-action:manipulation}
+figcaption{font-size:.9rem;color:var(--muted);margin-top:8px}
+.status{display:flex;align-items:center;gap:12px;margin:12px 0 4px;flex-wrap:wrap}
+.status strong{font-size:1.15rem}
+.meter{flex:1;min-width:120px;height:10px;border-radius:6px;background:var(--line);overflow:hidden}
+.meter i{display:block;height:100%;width:50%;background:var(--bar);transition:width .2s}
+.btns{display:flex;gap:8px;margin-top:10px;flex-wrap:wrap}
+button{font:inherit;font-weight:600;color:var(--ink);background:transparent;border:1.5px solid var(--ink);border-radius:999px;padding:8px 16px;cursor:pointer}
+button:hover{background:var(--ink);color:var(--bg)}
+button:focus-visible{outline:3px solid var(--bar);outline-offset:2px}
+input{font:inherit;color:var(--ink);background:var(--panel);border:1.5px solid var(--line);border-radius:999px;padding:8px 14px;min-width:0;flex:1 1 130px}input:focus-visible{outline:3px solid var(--bar);outline-offset:2px}
+</style>
+</head>
+<body>
+<main>
+<h1 id="title">Your pet fly</h1>
+<noscript><p class="lede"><strong>This page needs JavaScript to run.</strong> If you opened it from the Files app, open it in Safari or a browser instead.</p></noscript>
+<p class="lede">A fruit fly steered by a small simulated brain of 52 neurons. Click the dish to drop food and watch it smell its way over. Leave it alone and it gets hungry.</p>
+<div class="grid">
+  <div>
+    <div class="arenaWrap"><canvas id="arena" aria-label="Petri dish with a fly. Click to drop food."></canvas></div>
+    <div class="status"><strong id="state">Wandering</strong><div class="meter" title="Hunger"><i id="hunger"></i></div></div>
+    <div class="btns"><input id="name" type="text" maxlength="20" placeholder="Name your fly" aria-label="Name your fly"><button id="drop">Drop food</button><button id="rain">Make it rain</button><button id="reset">Reset</button></div>
+  </div>
+  <figure class="panel">
+    <canvas id="brain" aria-label="Live activity of the fly’s simulated neurons"></canvas>
+  </figure>
+</div>
+</main>
+<script>
+(function(){
+var S=600,BS=400;
+var arena=document.getElementById('arena'),brain=document.getElementById('brain');
+var A=arena.getContext('2d'),B=brain.getContext('2d');
+function fit(c){var r=c.getBoundingClientRect(),d=window.devicePixelRatio||1;c.width=Math.round(r.width*d);c.height=Math.round(r.height*d)}
+function resize(){fit(arena);fit(brain)}
+window.addEventListener('resize',resize);resize();
+
+/* ---- brain ---- */
+var N=52,G={sl:[0,6],sr:[6,12],h:[12,16],mid:[16,40],ml:[40,46],mr:[46,52]};
+var syn=[];
+function add(a,b,p,w){for(var i=a[0];i<a[1];i++)for(var j=b[0];j<b[1];j++)if(Math.random()<p)syn.push({pre:i,post:j,w:w})}
+var midL=[16,28],midR=[28,40];
+add(G.sl,midL,.6,.55);add(G.sr,midR,.6,.55);
+add(midL,G.ml,.6,.5);add(midR,G.mr,.6,.5);
+add(midL,midR,.15,-.3);add(midR,midL,.15,-.3);
+add(G.mid,G.mid,.06,.12);
+add(G.h,G.mid,.6,.2);
+var v=new Float32Array(N),sp=new Uint8Array(N),glow=new Float32Array(N);
+var rl=0,rr=0,spikeCount=0,spikesPerSec=0,spTimer=0;
+function step(ext){
+  var cur=new Float32Array(N),k;
+  for(k=0;k<syn.length;k++){var s=syn[k];if(sp[s.pre])cur[s.post]+=s.w}
+  var nl=0,nr=0;
+  for(var i=0;i<N;i++){
+    v[i]=v[i]*.85+cur[i]+ext[i];
+    if(v[i]>1){sp[i]=1;v[i]=0;spikeCount++;if(i>=40&&i<46)nl++;if(i>=46)nr++}else sp[i]=0;
+    glow[i]=sp[i]?1:glow[i]*.88;
+  }
+  rl=rl*.9+(nl/6)*.1*3;rr=rr*.9+(nr/6)*.1*3;
+}
+
+/* ---- world ---- */
+var fly,foods,hunger,t=0,acc=0,rainT=0,wet=0,ripples=[];
+function init(){fly={x:S/2,y:S/2+120,a:-1.2,speed:0,air:0,flyT:0};foods=[];hunger=.55;rl=rr=0;rainT=0;wet=0;ripples=[]}
+init();
+function odor(px,py){var c=0;for(var i=0;i<foods.length;i++){var f=foods[i],d=Math.hypot(px-f.x,py-f.y);c+=f.amt*Math.exp(-d/90)}return c}
+function addFood(x,y){if(foods.length>=5)foods.shift();foods.push({x:x,y:y,amt:1,k:Math.floor(Math.random()*6)})}
+function inDish(x,y){return Math.hypot(x-S/2,y-S/2)<S/2-24}
+arena.addEventListener('pointerdown',function(e){
+  var r=arena.getBoundingClientRect(),x=(e.clientX-r.left)/r.width*S,y=(e.clientY-r.top)/r.height*S;
+  if(inDish(x,y))addFood(x,y);
+});
+document.getElementById('drop').onclick=function(){var a=Math.random()*6.28,d=Math.random()*(S/2-60);addFood(S/2+Math.cos(a)*d,S/2+Math.sin(a)*d)};
+document.getElementById('reset').onclick=init;
+document.getElementById('rain').onclick=function(){rainT=10};
+var nameEl=document.getElementById('name'),titleEl=document.getElementById('title');
+function applyName(){var n=nameEl.value.trim();titleEl.textContent=n||'Your pet fly';document.title=n||'Your pet fly'}
+try{nameEl.value=localStorage.getItem('flyName')||''}catch(e){}
+applyName();
+nameEl.addEventListener('input',function(){applyName();try{localStorage.setItem('flyName',nameEl.value)}catch(e){}});
+
+var mode='Wandering';
+function update(dt){
+  t+=dt;
+  hunger=Math.min(1,hunger+dt*.02);
+  if(rainT>0){rainT-=dt;wet=Math.min(1,wet+dt*.18);fly.flyT=0;if(Math.random()<.6){var ra=Math.random()*6.28,rd=Math.sqrt(Math.random())*(S/2-14);ripples.push({x:S/2+Math.cos(ra)*rd,y:S/2+Math.sin(ra)*rd,r:1,a:1})}}
+  else if(wet>0)wet=Math.max(0,wet-dt*.22);
+  for(var q2=ripples.length-1;q2>=0;q2--){var rp2=ripples[q2];rp2.r+=dt*22;rp2.a-=dt*1.6;if(rp2.a<=0)ripples.splice(q2,1)}
+  var cleaning=rainT<=0&&wet>0;
+  var ca=Math.cos(fly.a),sa=Math.sin(fly.a),off=11,hx=fly.x+ca*10,hy=fly.y+sa*10;
+  var cL=odor(hx+sa*off,hy-ca*off),cR=odor(hx-sa*off,hy+ca*off);
+  var gate=.2+hunger*.9,ext=new Float32Array(N),i;
+  for(i=G.sl[0];i<G.sl[1];i++)ext[i]=2.6*Math.max(0,cL-.7*cR)*gate*(.7+Math.random()*.6);
+  for(i=G.sr[0];i<G.sr[1];i++)ext[i]=2.6*Math.max(0,cR-.7*cL)*gate*(.7+Math.random()*.6);
+  for(i=G.h[0];i<G.h[1];i++)ext[i]=hunger*.35*(.6+Math.random()*.8);
+  for(i=G.mid[0];i<G.mid[1];i++)ext[i]=Math.random()*.16;
+  for(i=G.ml[0];i<G.mr[1];i++)ext[i]=Math.random()*.1;
+  acc+=dt;while(acc>=1/60){step(ext);acc-=1/60}
+  spTimer+=dt;if(spTimer>=1){spikesPerSec=spikeCount;spikeCount=0;spTimer=0}
+
+  var eating=null;
+  for(i=0;i<foods.length;i++){if(fly.air<.15&&!cleaning&&Math.hypot(fly.x-foods[i].x,fly.y-foods[i].y)<15){eating=foods[i];break}}
+  var drive=rl+rr;
+  var sp_=Math.min(95,14+170*drive);
+  if(hunger<.2&&!eating)sp_*=.25;
+  var nd=1e9;foods.forEach(function(f){nd=Math.min(nd,Math.hypot(fly.x-f.x,fly.y-f.y))});
+  if(fly.flyT<=0&&fly.air<.05&&!eating&&wet<.05&&rainT<=0){var want=.03+(hunger>.5&&nd<1e9&&nd>180?.5:0)+(hunger>.8&&!foods.length?.12:0);if(Math.random()<want*dt)fly.flyT=3+Math.random()*3}
+  if(fly.flyT>0&&hunger>.4&&nd<45)fly.flyT=0;
+  if(fly.flyT>0){fly.flyT-=dt;fly.air=Math.min(1,fly.air+dt*3)}else fly.air=Math.max(0,fly.air-dt*2.5);
+  if(fly.air>.3)sp_=Math.max(sp_,115);
+  if(rainT>0)sp_*=.6;
+  if(cleaning)sp_=0;
+  fly.a+=(rr-rl)*9*dt+(Math.random()-.5)*(1.6+fly.air*2.5)*dt;
+  if(eating){
+    fly.speed=0;eating.amt-=dt*.22;hunger=Math.max(0,hunger-dt*.22);
+    if(eating.amt<=0)foods.splice(foods.indexOf(eating),1);
+    mode='Eating';
+  }else{
+    fly.speed+=(sp_-fly.speed)*Math.min(1,dt*6);
+    mode=cleaning?'Cleaning up':rainT>0?'Caught in the rain':fly.air>.3?'Flying':hunger<.2?'Full and resting':(cL+cR>.12?'Following a smell':'Wandering');
+  }
+  fly.x+=Math.cos(fly.a)*fly.speed*dt;fly.y+=Math.sin(fly.a)*fly.speed*dt;
+  var dx=fly.x-S/2,dy=fly.y-S/2,d=Math.hypot(dx,dy),R=S/2-26;
+  if(d>R){var inward=Math.atan2(-dy,-dx),diff=Math.atan2(Math.sin(inward-fly.a),Math.cos(inward-fly.a));fly.a+=diff*Math.min(1,dt*8);fly.x=S/2+dx/d*R;fly.y=S/2+dy/d*R}
+  document.getElementById('state').textContent=(nameEl.value.trim()?nameEl.value.trim()+': ':'')+mode;
+  document.getElementById('hunger').style.width=Math.round(hunger*100)+'%';
+}
+
+/* ---- drawing ---- */
+function drawFood(f){
+  var r=8+f.amt*12,k=f.k,i;A.save();A.translate(f.x,f.y);
+  function c(px,py,pr,col){A.fillStyle=col;A.beginPath();A.arc(px,py,pr,0,6.2832);A.fill()}
+  if(k===0){c(0,2,r,'#d62839');c(0,-r*.8,r*.38,'#3f9b3a');for(i=0;i<5;i++)c(Math.cos(i*1.26)*r*.5,Math.sin(i*1.26)*r*.5+2,r*.09,'#ffe08a')}
+  else if(k===1){c(-r*.5,r*.25,r*.45,'#6a3d9a');c(r*.5,r*.25,r*.45,'#6a3d9a');c(0,-r*.3,r*.45,'#8153b8');c(0,r*.7,r*.45,'#8153b8');c(0,-r*.9,r*.2,'#3f9b3a')}
+  else if(k===2){c(0,0,r,'#f28c0f');c(0,0,r*.8,'#ffc15e');A.strokeStyle='#f28c0f';A.lineWidth=1.5;for(i=0;i<4;i++){var an=i*.785;A.beginPath();A.moveTo(-Math.cos(an)*r*.8,-Math.sin(an)*r*.8);A.lineTo(Math.cos(an)*r*.8,Math.sin(an)*r*.8);A.stroke()}}
+  else if(k===3){A.fillStyle='#3f9b3a';A.beginPath();A.arc(0,-r*.4,r*1.1,0,3.1416);A.closePath();A.fill();A.fillStyle='#f04e5e';A.beginPath();A.arc(0,-r*.4,r*.85,0,3.1416);A.closePath();A.fill();c(-r*.4,r*.05,r*.08,'#2a1d14');c(0,r*.25,r*.08,'#2a1d14');c(r*.4,r*.05,r*.08,'#2a1d14')}
+  else if(k===4){A.strokeStyle='#f6d33a';A.lineWidth=r*.55;A.lineCap='round';A.beginPath();A.arc(0,-r*.3,r*.85,.35,2.8);A.stroke();A.lineCap='butt'}
+  else{c(0,2,r,'#c8312d');A.strokeStyle='#5a3a22';A.lineWidth=2;A.beginPath();A.moveTo(0,-r*.7);A.lineTo(r*.15,-r*1.2);A.stroke();c(r*.45,-r*.95,r*.3,'#3f9b3a')}
+  A.restore()
+}
+function drawArena(){
+  var k=arena.width/S;A.setTransform(k,0,0,k,0,0);A.clearRect(0,0,S,S);
+  var g=A.createRadialGradient(S/2,S/2,40,S/2,S/2,S/2);g.addColorStop(0,'#d9e8a8');g.addColorStop(1,'#b9cf86');
+  A.fillStyle=g;A.beginPath();A.arc(S/2,S/2,S/2-4,0,6.2832);A.fill();
+  A.lineWidth=6;A.strokeStyle='rgba(255,255,255,.55)';A.stroke();
+  if(rainT>0){A.fillStyle='rgba(70,100,140,'+(.16*Math.min(1,rainT))+')';A.beginPath();A.arc(S/2,S/2,S/2-4,0,6.2832);A.fill()}
+  A.lineWidth=1.3;ripples.forEach(function(p){A.strokeStyle='rgba(255,255,255,'+(p.a*.75)+')';A.beginPath();A.arc(p.x,p.y,p.r,0,6.2832);A.stroke()});
+  foods.forEach(drawFood);
+  if(fly.air>.02){A.fillStyle='rgba(30,50,20,'+(.28-fly.air*.1)+')';A.beginPath();A.ellipse(fly.x+4*fly.air,fly.y+10*fly.air,18,9,fly.a,0,6.2832);A.fill()}
+  A.save();A.translate(fly.x+(mode==='Cleaning up'?Math.sin(t*30)*.8:0),fly.y-fly.air*16);A.scale(1+fly.air*.3,1+fly.air*.3);A.rotate(fly.a);
+  var wob=fly.speed*.12,ph=t*(fly.speed>5?22:3);
+  A.strokeStyle='#2a1d14';A.lineWidth=1.6;
+  for(var p=0;p<3;p++)for(var s=-1;s<=1;s+=2){var sw=Math.sin(ph+p*2+(s>0?0:3))*wob*.25;A.beginPath();A.moveTo(2-p*5,s*3);A.lineTo(2-p*5+sw+3,s*(10+p));A.stroke()}
+  A.fillStyle='rgba(180,205,215,.45)';A.strokeStyle='rgba(60,80,90,.5)';A.lineWidth=.8;
+  for(s=-1;s<=1;s+=2){A.save();A.translate(-2,s*4);A.rotate(s*(fly.air>.3?.9+Math.sin(t*70)*.45:.28+(mode==='Eating'?0:Math.sin(t*3)*.03)));A.beginPath();A.ellipse(-10,0,14,4.2,0,0,6.2832);A.fill();A.stroke();A.restore()}
+  A.fillStyle='#5a3a22';A.beginPath();A.ellipse(-12,0,10,6.5,0,0,6.2832);A.fill();
+  A.strokeStyle='#2a1d14';A.lineWidth=1.5;for(var b=-16;b<=-9;b+=3.5){A.beginPath();A.moveTo(b,-5.5);A.lineTo(b,5.5);A.stroke()}
+  A.fillStyle='#7a5230';A.beginPath();A.ellipse(0,0,9,6.2,0,0,6.2832);A.fill();
+  if(wet>.02){A.fillStyle='rgba(120,175,235,'+(wet*.45)+')';A.beginPath();A.ellipse(-6,0,17,7,0,0,6.2832);A.fill();A.fillStyle='rgba(255,255,255,'+(wet*.8)+')';A.beginPath();A.arc(-3,-3,1.4,0,6.2832);A.arc(-11,2,1.2,0,6.2832);A.arc(2,3,1.1,0,6.2832);A.fill()}
+  A.fillStyle='#4a3020';A.beginPath();A.arc(10,0,5.2,0,6.2832);A.fill();
+  A.fillStyle='#b3261e';A.beginPath();A.arc(11,-3.6,3.3,0,6.2832);A.arc(11,3.6,3.3,0,6.2832);A.fill();
+  if(mode==='Cleaning up'){var rub=Math.sin(t*14)*2.5;A.strokeStyle='#2a1d14';A.lineWidth=1.6;for(s=-1;s<=1;s+=2){A.beginPath();A.moveTo(6,s*3);A.lineTo(11+rub,s*5.5);A.stroke()}}
+  A.restore();
+}
+function pos(i){
+  var k,col,row;
+  if(i<6)return[44+(i%3)*30,36+Math.floor(i/3)*26];
+  if(i<12){k=i-6;return[BS-44-(k%3)*30,36+Math.floor(k/3)*26]}
+  if(i<16)return[BS/2-30+(i-12)*20,96];
+  if(i<40){k=i-16;var side=k<12?0:1,kk=k%12;col=kk%3+side*3;row=Math.floor(kk/3);return[66+col*54,150+row*36]}
+  if(i<46){k=i-40;return[96+(k%3)*30,324+Math.floor(k/3)*28]}
+  k=i-46;return[BS-96-(k%3)*30,324+Math.floor(k/3)*28];
+}
+var P=[];for(var q=0;q<N;q++)P.push(pos(q));
+function col(i,a){
+  if(i<12)return'rgba(246,176,50,'+a+')';
+  if(i<16)return'rgba(214,120,220,'+a+')';
+  if(i<40)return'rgba(110,190,230,'+a+')';
+  return'rgba(255,115,95,'+a+')';
+}
+function drawBrain(){
+  var k=brain.width/BS;B.setTransform(k,0,0,k,0,0);B.clearRect(0,0,BS,BS);
+  B.lineWidth=1;
+  for(var j=0;j<syn.length;j++){var s=syn[j],on=glow[s.pre]>.5;
+    B.strokeStyle=on?'rgba(255,255,255,.35)':'rgba(255,255,255,.04)';
+    B.beginPath();B.moveTo(P[s.pre][0],P[s.pre][1]);B.lineTo(P[s.post][0],P[s.post][1]);B.stroke()}
+  for(var i=0;i<N;i++){var g=glow[i];
+    B.fillStyle=col(i,.25+.75*g);B.beginPath();B.arc(P[i][0],P[i][1],4+g*3.5,0,6.2832);B.fill()}
+}
+var last=performance.now();
+function loop(now){
+  var dt=Math.min(.05,(now-last)/1000);last=now;
+  update(dt);drawArena();drawBrain();
+  requestAnimationFrame(loop);
+}
+requestAnimationFrame(loop);
+})();
+</script>
+</body>
+</html>
